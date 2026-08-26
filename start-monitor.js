@@ -6,7 +6,7 @@
  * 
  * 启动: node start-monitor.js
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import net from 'node:net';
@@ -242,6 +242,51 @@ function registerCoreServices(loader, ctx) {
   loader.serviceOwners.set('core.authConfig', 'core');
 }
 
+// ── 旧数据迁移（issue #103）：refactor 后根目录数据 → data/ 目录 ──
+// 仅当仓库根存在旧文件、且 data/ 下对应目标不存在时才搬移，避免覆盖；幂等。
+function migrateLegacyData(rootDir, dataDir) {
+  const legacyDb = path.join(rootDir, 'vrc-monitor.sqlite3');
+  const dataDb = path.join(dataDir, 'vrc-monitor.sqlite3');
+  const legacyCookie = path.join(rootDir, 'auth_cookie.txt');
+  const dataCookie = path.join(dataDir, 'auth_cookie.txt');
+  const legacyBackups = path.join(rootDir, 'backups');
+  const dataBackups = path.join(dataDir, 'backups');
+
+  const needsMove = [];
+
+  // 主库 + WAL/SHM
+  const dataDbExists = existsSync(dataDb) || existsSync(dataDb + '-wal') || existsSync(dataDb + '-shm');
+  for (const ext of ['', '-wal', '-shm']) {
+    const from = legacyDb + ext;
+    const to = dataDb + ext;
+    if (existsSync(from) && !dataDbExists) {
+      needsMove.push({ from, to, label: path.relative(rootDir, from) });
+    }
+  }
+
+  // Cookie
+  if (existsSync(legacyCookie) && !existsSync(dataCookie)) {
+    needsMove.push({ from: legacyCookie, to: dataCookie, label: 'auth_cookie.txt' });
+  }
+
+  // 备份目录
+  if (existsSync(legacyBackups) && !existsSync(dataBackups)) {
+    needsMove.push({ from: legacyBackups, to: dataBackups, label: 'backups/' });
+  }
+
+  if (needsMove.length === 0) return;
+
+  mkdirSync(dataDir, { recursive: true });
+  for (const { from, to, label } of needsMove) {
+    try {
+      renameSync(from, to);
+      console.log(`[migrate] ${label} -> ${path.relative(rootDir, to)}`);
+    } catch (e) {
+      console.warn(`[migrate] 移动失败 ${label}: ${e.message}`);
+    }
+  }
+}
+
 // ── 启动 ──
 
 async function main() {
@@ -277,6 +322,9 @@ async function main() {
   } else {
     log('\n🔓 安全模式未启用（VRC_MONITOR_SAFE_MODE 未设置或非 true）');
   }
+
+  // 0c. 旧数据迁移（issue #103）：根目录旧文件 → data/
+  migrateLegacyData(__dirname, path.join(__dirname, 'data'));
 
   // 1. 初始化数据库
   log('📦 初始化数据库...');
