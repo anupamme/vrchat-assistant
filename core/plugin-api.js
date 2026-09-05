@@ -116,7 +116,7 @@ function buildDbNamespace({ pluginName, prefix, ctx }) {
     const sorted = Array.from(aliases).sort((a, b) => b.length - a.length);
     for (const alias of sorted) {
       const actual = getActual(alias);
-      sql = sql.replace(new RegExp(`\\b${alias}\\b`, 'g'), actual);
+      sql = sql.replace(new RegExp(`\\b${alias}\\b`, 'g'), `"${actual}"`);
     }
     return sql;
   }
