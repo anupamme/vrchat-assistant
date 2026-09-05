@@ -199,8 +199,6 @@ def get_credentials() -> Dict[str, Any]:
             "ok": True,
             "configured": configured,
             "email_masked": email_masked,
-            "monitor_dir": monitor_dir,
-            "config_path": str(cred_path) if cred_path else None,
         }
     except Exception:
         logger.exception("get_credentials failed")
